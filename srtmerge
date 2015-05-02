@@ -1,17 +1,15 @@
 #!/bin/bash
-# Merge two SRT subtitle files. Only the main subtitle timestamp is preserved while the translated
-# subtitle timestamp is replaced with the main subtitle timestamp with matching section number. section_offset
-# is to adjust section number between the two. i.e. offset 6 means the first 6 main subtitle has no
-# translation so the 7th main subtitle maps to the 1st translate subtitle section; -4 means main subtitle
-# misses its first 4 section, so the 1st main subtitle maps to the 5th translated subtitle section.
+# Merge two SRT subtitle files. Only the first subtitle timestamp is
+# preserved. Merging by subtitle sequence number where the
+# sequence_offset adjust sequence number between the two.
 
 SAVEIFS=$IFS
 IFS=$(echo -en "\n\b")	# to support space in file name
-SECT_OFF=$3		# section number offset
-CUR_SECT=0		# current processed section number
+SEQ_OFF=$3		# sequence number offset
+CUR_SEQ=0		# current processed sequence number
 
 usage() {
-	echo $1 "<main_subtitle> <translated_subtitle> [section_offset]"
+	echo $1 "<subtitle 1> <subtitle 2> [sequence_offset]"
 	exit
 }
 
@@ -22,10 +20,10 @@ trim() {
 	echo -n "$var"
 }
 
-# Dump or skip one section of subtitle. Return false if EOF
-dump_one_sub_sect() {
-	fd=$1		# file descriptor, 0 for main subtitle, 3 for translated subtile
-	skip=$2		# skip 2 lines for translated subtitle since its timestamp is not needed
+# Dump or skip one sequence of subtitle. Return false if EOF
+dump_on_sub_seq() {
+	fd=$1		# file descriptor, 0 for 1st subtitle 1, 3 for 2nd subtile
+	skip=$2		# skip 2 lines for 2nd subtitle since its timestamp is not needed
 	font=$3 	# add <i>, <b> etc wrapper to highlight subtitle text
 
 	# skip leading empty lines
@@ -37,8 +35,8 @@ dump_one_sub_sect() {
 	# EOF
 	[ -z $line ] && return -1
 
-	# dump section number and timestamp portion
-	CUR_SECT=$line
+	# dump sequence number and timestamp portion
+	CUR_SEQ=$line
 	(( skip-- ))
 	[ $skip -ge 0 ] || echo $line
 	if read -u $fd line; then
@@ -64,36 +62,36 @@ dump_one_sub_sect() {
 }
 
 [ $# -lt 2 ] && usage $0
-offset=$SECT_OFF
+offset=$SEQ_OFF
 while true; do
-	# adjust start sections; dump first n sections of original substile wihtout translated subtile 
+	# adjust start sequences; dump first n sequences of 1st substile
 	if [[ $offset -gt 0 ]]; then
-		dump_one_sub_sect 0 0 || break
+		dump_on_sub_seq 0 0 || break
 		(( offset-- ))
 		echo	# leave an empty line
 		continue
 	fi 
 
-	# adjust start sections; skip first n sections of tranlsated subtitle without main subtitle
+	# adjust start sequences; skip first n sequences of 1st subtitle
 	if [[ $offset -lt 0 ]]; then
-		>> /dev/null dump_one_sub_sect 3 0
+		>> /dev/null dump_on_sub_seq 3 0
 		(( offset++ ))
 		continue
 	fi
 
-	# dump one section of original subtitle
-	dump_one_sub_sect 0 0 || break
+	# dump one sequence of 1st subtitle
+	dump_on_sub_seq 0 0 || break
 
-	# dump one section of translated subtitle
-	sect=$CUR_SECT
-	dump_one_sub_sect 3 2 "i" || continue
-	(( idx_diff=sect-SECT_OFF-CUR_SECT ))
+	# dump one sequence of 2nd subtitle
+	seq=$CUR_SEQ
+	dump_on_sub_seq 3 2 "i" || continue
+	(( idx_diff=seq-SEQ_OFF-CUR_SEQ ))
 	if [[ $idx_diff -ne 0 ]]; then
-		>&2 echo "Error: $1:$sect mismatch $2:$CUR_SECT"
+		>&2 echo "Error: $1:$seq mismatch $2:$CUR_SEQ"
 		break;
 	fi
 
-	# Leave an empty line between merged section
+	# Leave an empty line between merged sequence
 	echo
 done < $1 3< $2
 IFS=$SAVEIFS
